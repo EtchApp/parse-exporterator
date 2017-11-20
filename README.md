@@ -6,21 +6,21 @@ Currently CSV is supported but other export formats could be added if desired.
 
 ## Overview Diagram
 
-![overview diagram](https://github.com/drewrothstein/parse-exporterator/raw/master/errata/exporterator.png)
+![overview diagram](https://github.com/EtchApp/parse-exporterator/raw/master/errata/exporterator.png)
 
 ## Screenshots
 
 ### Cron Schedule
 
-![cron schedule](https://github.com/drewrothstein/parse-exporterator/raw/master/errata/cron_schedule.png)
+![cron schedule](https://github.com/EtchApp/parse-exporterator/raw/master/errata/cron_schedule.png)
 
 ### GCS Bucket
 
-![bucket ui](https://github.com/drewrothstein/parse-exporterator/raw/master/errata/gcs_ui.png)
+![bucket ui](https://github.com/EtchApp/parse-exporterator/raw/master/errata/gcs_ui.png)
 
 ### GCS Bucket Files
 
-![bucket files](https://github.com/drewrothstein/parse-exporterator/raw/master/errata/gcs_files.png)
+![bucket files](https://github.com/EtchApp/parse-exporterator/raw/master/errata/gcs_files.png)
 
 ## What does it do?
 
