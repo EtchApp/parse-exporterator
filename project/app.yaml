@@ -1,0 +1,28 @@
+runtime: python27
+api_version: 1
+threadsafe: yes
+
+handlers:
+- url: /favicon\.ico
+  static_files: favicon.ico
+  upload: favicon\.ico
+- url: /.*
+  script: main.app
+  login: admin
+
+libraries:
+- name: ssl
+  version: latest
+
+# In my case, I am using a F2.
+# Feel free to tune as needed.
+# Doc: https://cloud.google.com/appengine/docs/standard/
+instance_class: F2
+
+resources:
+  cpu: 1
+  memory_gb: 0.5
+  disk_size_gb: 10
+
+env_variables:
+  PYTHONHTTPSVERIFY: 1

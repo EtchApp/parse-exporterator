@@ -1,0 +1,5 @@
+cron:
+- description: exporter daily
+  url: /run
+  schedule: every day 14:00
+  target: cron
