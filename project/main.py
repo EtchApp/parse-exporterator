@@ -3,8 +3,10 @@
 from __future__ import division
 
 import base64
+import csv
 import datetime
 import logging
+import os
 import re
 import time
 
@@ -13,7 +15,8 @@ from google.appengine.api import urlfetch
 from google.cloud import storage
 import googleapiclient.discovery             # noqa: I201
 
-from flask import Flask                      # noqa: I100
+import cloudstorage as gcs                   # noqa: I100
+from flask import Flask                      # noqa: I100, I201
 import requests                              # noqa: I201
 import requests_toolbelt.adapters.appengine  # noqa: I201
 import yaml                                  # noqa: I201
@@ -146,35 +149,42 @@ def make_csv(json):
     csv_dict = {}
     for classname, rows in json.iteritems():
         for row in rows:
+            headers = row.keys()
+
             if classname not in csv_dict:
-                headers = ', '.join(row.keys())
-                csv_dict[classname] = '{0}\n'.format(headers)
+                csv_dict[classname] = [headers]
 
             formatted_row = []
-            for value_row in row.values():
+            for expected_field in csv_dict[classname][0]:
+                if expected_field not in row:
+                    formatted_row.append("Undefined")
+                    continue
+
+                value_row = row.get(expected_field)
+
                 # TODO: This is absolute garbage and should be fixed at some point.                            # noqa: E501
                 # This is being done because JSON > CSV directly would be utterly annoying and                 # noqa: E501
                 # fairly useless.  This could be done much cleaner if an actual parser was written.            # noqa: E501
                 try:
                     if type(value_row) is dict:
-                        formatted_row.append('"{0}"'.format(', '.join([', '.join(                              # noqa: E501
-                            [key, str(val)]) for key, val in value_row.items()])))                             # noqa: E501
+                        formatted_row.append(', '.join([', '.join(                                             # noqa: E501
+                            [key, str(val)]) for key, val in value_row.items()]))                              # noqa: E501
                     elif (type(value_row) is bool) or (type(value_row) is float) or (type(value_row) is int):  # noqa: E501
-                        formatted_row.append('"{0}"'.format(str(value_row)))
+                        formatted_row.append(str(value_row))
                     elif type(value_row) is list:
                         # We know these lists to contain dicts, Oy!
                         flattened_row = []
                         for elem in value_row:
                             if type(elem) is dict:
-                                flattened_row.append('"{0}"'.format(', '.join([', '.join(                      # noqa: E501
-                                    [key, str(val)]) for key, val in elem.items()])))                          # noqa: E501
+                                flattened_row.append(', '.join([', '.join(                                     # noqa: E501
+                                    [key, str(val)]) for key, val in elem.items()]))                           # noqa: E501
                             else:
                                 logging.error('Did not expect a list to contain '                              # noqa: E501
                                     'non-dictionaries, Data: {0}'.format(value_row))                           # noqa: E501
-                        formatted_row.append('"{0}"'.format(', '.join(flattened_row)))                         # noqa: E501
+                        formatted_row.append(', '.join(flattened_row))                                         # noqa: E501
                     elif type(value_row) is unicode:
                         encoded_row = value_row.encode('ascii', 'ignore').decode('ascii')                      # noqa: E501
-                        formatted_row.append('"{0}"'.format(encoded_row))
+                        formatted_row.append(encoded_row)
                     else:
                         logging.error('Unknown data type: {0} for value: {1}'.format(                          # noqa: E501
                             type(value_row), value_row))
@@ -183,31 +193,42 @@ def make_csv(json):
                                   '{0}, Row: {1}'.format(error, value_row))
                     raise
 
-            formatted_str = ', '.join(formatted_row)
-
             # Sanitizer, very basic for now.
             # TODO: Make smarter and more configurable.
-            formatted_str = re.sub(r'"[^"]+token[^"]+"', '"[REDACTED]"', formatted_str, flags=re.IGNORECASE)   # noqa: E501
+            formatted_rows = [re.sub(r'.*token.*', '[REDACTED]', elem, flags=re.IGNORECASE) for elem in formatted_row]       # noqa: E501
 
-            csv_dict[classname] += '{0}\n'.format(formatted_str)
+            # Pointer cleanup, very basic for now.
+            # TODO: Make smarter and more configurable.
+            formatted_rows = [re.sub(r'^className.*objectId,\s', '', elem, flags=re.IGNORECASE) for elem in formatted_rows]  # noqa: E501
+
+            # Date cleanup, very basic for now.
+            # TODO: Make smarter and more configurable.
+            formatted_rows = [re.sub(r'^iso,\s', '', elem, flags=re.IGNORECASE) for elem in formatted_rows]                  # noqa: E501
+            formatted_rows = [re.sub(r',\s__type.*$', '', elem, flags=re.IGNORECASE) for elem in formatted_rows]             # noqa: E501
+
+            csv_dict[classname].append(formatted_rows)
 
     return csv_dict
 
 
-def write_data_to_gcs(csv):
+def write_data_to_gcs(csv_data):
     """Writes CSV to GCS."""
     logging.info('Uploading data to GCS')
-    client = storage.Client()
-    bucket = client.get_bucket(DATA_BUCKET)
     now_iso8601 = datetime.datetime.utcnow().isoformat('T')
 
-    for classname, results in csv.iteritems():
+    for classname, results in csv_data.iteritems():
         filename_to_create = '{0}/{1}.csv'.format(now_iso8601, classname)
+        bucket_with_filename = os.path.join('/', DATA_BUCKET, filename_to_create)          # noqa: E501
+
         try:
-            blob = storage.Blob(filename_to_create, bucket)
-            blob.upload_from_string(results)
+            with gcs.open(bucket_with_filename, 'w',
+                          content_type='text/csv') as gcs_file:
+
+                writer = csv.writer(gcs_file,
+                                    delimiter=',', quotechar='"', quoting=csv.QUOTE_ALL)   # noqa: E501
+                writer.writerows(results)
         except Exception as error:
-            logging.error('An error occurred uploading data to GCS: {0}'.format(error))  # noqa: E501
+            logging.error('An error occurred writing the file to GCS: {0}'.format(error))  # noqa: E501
             raise error
 
 
@@ -215,9 +236,9 @@ def runit():
     """Runs the task."""
     parse_creds = get_credentials(PARSE_CRYPTOKEY, PARSE_API_FILE)
 
-    json = fetch_parse(parse_creds)
-    csv  = make_csv(json)  # noqa: E221
-    write_data_to_gcs(csv)
+    json     = fetch_parse(parse_creds)  # noqa: E221
+    csv_data = make_csv(json)
+    write_data_to_gcs(csv_data)
 
 
 @app.route('/run')

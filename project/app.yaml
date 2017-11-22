@@ -26,3 +26,4 @@ resources:
 
 env_variables:
   PYTHONHTTPSVERIFY: 1
+  GAE_USE_SOCKETS_HTTPLIB : 'puppies!'
